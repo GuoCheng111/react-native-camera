@@ -3,11 +3,15 @@ package org.reactnative.camera.tasks;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.support.media.ExifInterface;
 import android.util.Base64;
+import android.util.Log;
 
 import org.reactnative.camera.RNCameraViewHelper;
 import org.reactnative.camera.utils.RNFileUtils;
@@ -50,6 +54,7 @@ public class ResolveTakenPictureAsyncTask extends AsyncTask<Void, Void, Writable
     protected WritableMap doInBackground(Void... voids) {
         WritableMap response = Arguments.createMap();
         ByteArrayInputStream inputStream = null;
+        Bitmap copy = null;
 
         response.putInt("deviceOrientation", mDeviceOrientation);
         response.putInt("pictureOrientation", mOptions.hasKey("orientation") ? mOptions.getInt("orientation") : mDeviceOrientation);
@@ -105,6 +110,38 @@ public class ResolveTakenPictureAsyncTask extends AsyncTask<Void, Void, Writable
                     mBitmap = flipHorizontally(mBitmap);
                 }
 
+                if (mOptions.hasKey("offset") && mOptions.getDouble("offset") > 0) {
+                    try {
+                        copy = mBitmap.copy(Bitmap.Config.ARGB_8888, true);
+                        Canvas canvas = new Canvas(copy);
+                        Paint paint = new Paint(); // 画笔
+                        int width = copy.getWidth();
+                        int offset = (int) Math.ceil(width * mOptions.getDouble("offset"));
+
+                        paint.setStrokeWidth(15); // 设置线宽。单位为像素
+                        paint.setAntiAlias(true); // 抗锯齿
+                        paint.setColor(Color.GREEN); // 画笔颜色
+                        canvas.drawBitmap(copy, new Matrix(), paint); // 在画布上画一个和bitmap一模一样的图
+                        // 中间的基准线
+                        if (mOptions.hasKey("baseLineColor")) {
+                            paint.setColor(0xff000000 | (mOptions.getInt("baseLineColor"))); // 画笔颜色
+                        }
+                        canvas.drawLine(copy.getWidth() / 2, 0, copy.getWidth() / 2, copy.getHeight(), paint);
+                        // 两侧基准线
+                        if (mOptions.hasKey("SidelineColor")) {
+                            paint.setColor(0xff000000 | (mOptions.getInt("SidelineColor"))); // 画笔颜色
+                        }
+                        canvas.drawLine(offset, 0, offset, copy.getHeight(), paint);
+                        canvas.drawLine(copy.getWidth() - offset, 0, copy.getWidth() - offset, copy.getHeight(), paint);
+
+                        // mBitmap = copy;
+                    } catch (Exception e) {
+                        Log.d("ResolveTakenPictureAsyncTask", e.toString());
+                    }
+                } else {
+                    Log.d("ResolveTakenPictureAsyncTask", "baseLine is null");
+                }
+
                 // Write Exif data to the response if requested
                 if (mOptions.hasKey("exif") && mOptions.getBoolean("exif")) {
                     WritableMap exifData = RNCameraViewHelper.getExifData(exifInterface);
@@ -126,6 +163,15 @@ public class ResolveTakenPictureAsyncTask extends AsyncTask<Void, Void, Writable
                 File imageFile = new File(filePath);
                 String fileUri = Uri.fromFile(imageFile).toString();
                 response.putString("uri", fileUri);
+
+                if (copy != null) {
+                    imageStream = new ByteArrayOutputStream();
+                    copy.compress(Bitmap.CompressFormat.JPEG, getQuality(), imageStream);
+                    filePath = writeStreamToFile(imageStream);
+                    imageFile = new File(filePath);
+                    fileUri = Uri.fromFile(imageFile).toString();
+                    response.putString("uri2", fileUri);
+                }
             }
 
             // Write base64-encoded image to the response if requested
